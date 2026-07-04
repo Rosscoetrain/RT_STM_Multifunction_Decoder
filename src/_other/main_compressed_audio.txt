@@ -1,0 +1,109 @@
+#include <Arduino.h>
+#include "audio_data_compressed.h" // Must expose definitions: AUDIO_DATA and AUDIO_LENGTH
+
+// Audio Configuration (Adjust to match your original recording)
+#define SAMPLE_RATE_HZ 8000 
+
+// Output Pin Setup
+#define AUDIO_PWM_PIN  PA2  
+
+// Volatile state tracking variables for the background interrupt engine
+volatile uint32_t current_sample_index = 0;
+volatile bool     is_low_nibble = false; 
+volatile bool     is_playing = false;
+
+// IMA-ADPCM Predictor States
+int16_t predicted_sample = 128; 
+int16_t step_size = 7;          
+const uint16_t STEP_TABLE[] = {7, 8, 9, 10, 12, 14, 16, 18};
+
+// STM32 Arduino Core Hardware Timer Instance
+HardwareTimer *SampleTimer = NULL;
+
+// 4-bit ADPCM Decoder Logic running inside the interrupt
+uint8_t decompressSample(uint8_t nibble) {
+  int32_t difference = 0;
+  
+  if (nibble & 4) difference += step_size;
+  if (nibble & 2) difference += step_size >> 1;
+  if (nibble & 1) difference += step_size >> 2;
+  difference += step_size >> 3;
+  
+  if (nibble & 8) {
+    predicted_sample -= difference;
+  } else {
+    predicted_sample += difference;
+  }
+  
+  // Constrain bounds to prevent 8-bit wrap-around distortion
+  if (predicted_sample > 255) predicted_sample = 255;
+  if (predicted_sample < 0)   predicted_sample = 0;
+  
+  // Adapt step size for the next upcoming nibble
+  step_size = STEP_TABLE[nibble & 7]; 
+  
+  return (uint8_t)predicted_sample;
+}
+
+// Timer Interrupt Service Routine (Fires every 125 microseconds for 8kHz)
+void AudioSampleISR(void) {
+  if (!is_playing) return;
+
+  // Targeting the requested original metadata identifiers
+  if (current_sample_index >= AUDIO_LENGTH) {
+    is_playing = false; // Audio finished
+    analogWrite(AUDIO_PWM_PIN, 128); // Return pin to audio midpoint (silence)
+    return;
+  }
+
+  // Fetch the packed byte from flash memory using requested original token name
+  uint8_t packed_byte = AUDIO_DATA[current_sample_index];
+  uint8_t raw_nibble = 0;
+
+  if (!is_low_nibble) {
+    // Process High 4 bits first
+    raw_nibble = (packed_byte >> 4) & 0x0F;
+    is_low_nibble = true; 
+  } else {
+    // Process Low 4 bits second
+    raw_nibble = packed_byte & 0x0F;
+    current_sample_index++; // Move to the next array byte on the next ISR cycle
+    is_low_nibble = false;
+  }
+
+  // Decode the sample and update the PWM duty cycle
+  uint8_t audio_signal = decompressSample(raw_nibble);
+  analogWrite(AUDIO_PWM_PIN, audio_signal);
+}
+
+// Function to trigger audio playback from your main logic
+void startAudioPlayback() {
+  current_sample_index = 0;
+  is_low_nibble = false;
+  predicted_sample = 128;
+  step_size = 7;
+  is_playing = true;
+}
+
+void setup() {
+  // Set up Arduino PWM Pin Output on PA2
+  pinMode(AUDIO_PWM_PIN, OUTPUT);
+  
+  // FIX: Passing only 1 global parameter argument as required by stm32duino API
+  analogWriteFrequency(40000); 
+  analogWriteResolution(8);
+  analogWrite(AUDIO_PWM_PIN, 128); // Initialize to silent center
+
+  // Configure STM32 Hardware Timer using STM32 Arduino Core API
+  SampleTimer = new HardwareTimer(TIM3); 
+  SampleTimer->setOverflow(SAMPLE_RATE_HZ, HERTZ_FORMAT);
+  SampleTimer->attachInterrupt(AudioSampleISR);
+  SampleTimer->resume(); // Start the timer engine
+
+  // Trigger the audio to start playing immediately on boot
+  startAudioPlayback();
+}
+
+void loop() {
+  // 100% Non-blocking code space
+}

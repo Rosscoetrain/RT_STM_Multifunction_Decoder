@@ -1,0 +1,54 @@
+#include <Arduino.h>
+
+// Define target pins
+#define TRIGGER_PIN  PA8
+#define MP3_TX_PIN   PA2
+
+// Instantiate HardwareSerial on USART1 (or the peripheral mapped to PA2)
+// Passing NC (Not Connected) to the RX pin ensures a transmit-only setup
+HardwareSerial MP3Serial(MP3_TX_PIN, NC);
+
+// Pre-calculated Hex Command arrays for the JQ6500
+// JQ6500 format: Start Byte (7E), Length (including command), Command, Data1, Data2..., End Byte (EF)
+const uint8_t CMD_SET_VOLUME_30[]  = {0x7E, 0x03, 0x06, 0x1E, 0xEF}; // Set Volume to 30 (0x1E)
+const uint8_t CMD_LOOP_TRACK_1[]   = {0x7E, 0x04, 0x41, 0x00, 0x01, 0xEF}; // Loop Folder 01 Track 001
+const uint8_t CMD_STOP_PLAYBACK[]  = {0x7E, 0x02, 0x0E, 0xEF};       // Stop playing
+
+// Track state variables to avoid spamming serial commands
+bool isLooping = false;
+
+void sendCommand(const uint8_t *cmd, uint8_t len) {
+  MP3Serial.write(cmd, len);
+  delay(20); // Small guard interval for the JQ6500 controller to process
+}
+
+void setup() {
+  // Initialize the trigger pin with internal pull-up resistor
+  pinMode(TRIGGER_PIN, INPUT_PULLUP);
+
+  // Initialize transmit-only serial communication at 9600 baud
+  MP3Serial.begin(9600);
+  delay(500); // Allow JQ6500 power-on time initialization
+
+  // Set the volume to the absolute maximum value (Level 30)
+  sendCommand(CMD_SET_VOLUME_30, sizeof(CMD_SET_VOLUME_30));
+}
+
+void loop() {
+  // Read state of PA_8. LOW indicates active trigger.
+  bool triggerActive = (digitalRead(TRIGGER_PIN) == LOW);
+
+  if (triggerActive && !isLooping) {
+    // Trigger went from FALSE to TRUE: Start looping track 1
+    sendCommand(CMD_LOOP_TRACK_1, sizeof(CMD_LOOP_TRACK_1));
+    isLooping = true;
+  } 
+  else if (!triggerActive && isLooping) {
+    // Trigger went from TRUE to FALSE: Stop the music
+    sendCommand(CMD_STOP_PLAYBACK, sizeof(CMD_STOP_PLAYBACK));
+    isLooping = false;
+  }
+
+  delay(50); // Small debounce and polling stabilization delay
+}
+

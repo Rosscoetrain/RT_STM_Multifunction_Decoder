@@ -1,0 +1,41 @@
+{
+    "build": {
+      "cpu": "cortex-m0plus",
+      "core": "stm32",
+      "extra_flags": "-DSTM32G0 -DSTM32G031xx -DARDUINO_GENERIC_G031J6MX",
+      "f_cpu": "48000000L",
+      "hwids": [
+        [
+          "0x1209",
+          "0x6665"
+        ],
+        [
+          "0x0483",
+          "0xDF11"
+        ]
+      ],
+      "mcu": "stm32g031j6m6",
+      "usb_product": "Generic STM32G031J6",
+      "product_line": "STM32G031xx",
+      "variant": "STM32G0xx/STM32G0xx/G031J(4-6)M_G041J6M"
+    },
+    "debug": {
+      "openocd_target": "stm32g0x",
+      "svd_path": "STM32G031.svd"
+    },
+    "frameworks": [
+      "arduino",
+      "stm32cube"
+    ],
+    "name": "Generic STM32G031J6",
+    "upload": {
+      "maximum_ram_size": 6144,
+      "maximum_size": 32768,
+      "protocol": "stlink",
+      "protocols": [
+        "stlink"
+      ]
+    },
+    "url": "https://www.st.com/en/microcontrollers-microprocessors/stm32g031j6.html",
+    "vendor": "STMicroelectronics"
+  }

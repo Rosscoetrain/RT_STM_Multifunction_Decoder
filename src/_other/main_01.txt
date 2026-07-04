@@ -1,0 +1,332 @@
+/*
+ *
+ * (C) 2026 Ross Scanlon
+ *
+ * RosscoeTrain
+ *
+ * iam@rosscoe.com
+ *
+ * stm32 DCC decoder for a level crossing decoder with bell
+ *
+ */
+
+#include <Arduino.h>
+#include <NmraDcc.h>
+#include <Servo.h>
+
+#ifdef STM32C0xx
+  #define LEARN_PIN  PA_6
+  #define DCC_PIN    PA_8
+  #define SERVO_PIN  PA_5  
+  #define SERVO2_PIN PA_3  
+  #define LED2       PA_0  
+  #define LED1       PA_1
+  #define SIGNAL_OUT PA_2
+  #define STATUS_LED PA_4
+#endif
+
+/*
+#ifdef STM32G031xx
+  #define SERVO_PIN  PA_5  
+  #define SERVO2_PIN PA_3  
+  #define LED2       PA_0  
+  #define LED1       PA_1     
+  #define LEARN_PIN  PA14     
+  #define DCC_PIN    PB7      
+  #define SIGNAL_OUT PA_2  
+#endif
+*/
+
+#define DEFAULT_ADDR      1   
+#define DEFAULT_GATE_UP   180  
+#define DEFAULT_GATE_DOWN 50   
+#define DEFAULT_SPEED     1  
+#define DEFAULT_TIME_VAL  30 
+
+#define CV_GATE1_UP       33
+#define CV_GATE1_DOWN     34
+#define CV_GATE1_SPEED    35
+#define CV_GATE2_UP       36
+#define CV_GATE2_DOWN     37
+#define CV_GATE2_SPEED    38
+#define CV_CLOSE_WARNING  39
+#define CV_OPEN_EXTENSION 40
+#define CV_SIGNAL_INV     41
+
+#define QUEUE_SIZE 16
+struct DccCommand {
+  uint16_t addr;
+  uint8_t direction;
+};
+DccCommand commandQueue[QUEUE_SIZE];
+volatile uint8_t queueHead = 0;
+volatile uint8_t queueTail = 0;
+
+NmraDcc Dcc;
+
+const uint8_t gammaTable[] = {
+  255,244,234,225,216,207,199,191,183,175,168,161,153,147,140,133,127,121,115,110,104,99,94,89,84,80,75,71,67,64,60,56,53,50,47,44,41,38,36,33,31,29,27,25,23,21,20,18,17,15,14,13,12,11,10,9,8,7,6,6,5,5,4,4,3,3,2,2,2,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0
+};
+
+enum LightState { UP, HOLD, DOWN, OFF };
+struct CrossingLight { int pin; int brightness; LightState state; unsigned long timer; };
+
+CrossingLight light1 = {LED1, 0, UP, 0};
+CrossingLight light2 = {LED2, 0, OFF, 0};
+
+uint16_t baseAddress;
+bool isLearning = false;
+bool crossingActive = false;
+bool lightsShouldRun = false;
+bool signalInverted = false;
+
+int gate1Up, gate1Down, gate1Speed;
+int gate2Up, gate2Down, gate2Speed;
+unsigned long closeWarningTime;
+unsigned long openExtensionTime;
+
+Servo servo1, servo2;
+int pos1, pos2;
+unsigned long lastUpdate = 0;
+
+unsigned long warningStartTimer = 0;
+unsigned long s1Timer = 0, s2Timer = 0;
+unsigned long s1Delay = 0, s2Delay = 0;
+bool s1Waiting = false, s2Waiting = false;
+
+
+void blinkAck(uint16_t b)
+ {
+  for (int i = 0; i<= b; i++ )
+   {
+    digitalWrite(STATUS_LED, LOW);
+    delay(100);
+    digitalWrite(STATUS_LED, HIGH);
+    delay(100);
+   }
+ }
+
+
+void writeSignal(bool active) {
+  bool level = active;
+  if (signalInverted) level = !active;
+  digitalWrite(SIGNAL_OUT, level ? HIGH : LOW);
+}
+
+void resetDefaults() {
+  Dcc.setCV(CV_ACCESSORY_DECODER_ADDRESS_LSB, (DEFAULT_ADDR & 0x3F));
+  Dcc.setCV(CV_ACCESSORY_DECODER_ADDRESS_MSB, ((DEFAULT_ADDR >> 6) & 0x07));
+  Dcc.setCV(CV_GATE1_UP, DEFAULT_GATE_UP);
+  Dcc.setCV(CV_GATE1_DOWN, DEFAULT_GATE_DOWN);
+  Dcc.setCV(CV_GATE1_SPEED, DEFAULT_SPEED);
+  Dcc.setCV(CV_GATE2_UP, DEFAULT_GATE_UP);
+  Dcc.setCV(CV_GATE2_DOWN, DEFAULT_GATE_DOWN);
+  Dcc.setCV(CV_GATE2_SPEED, DEFAULT_SPEED);
+  Dcc.setCV(CV_CLOSE_WARNING, DEFAULT_TIME_VAL);
+  Dcc.setCV(CV_OPEN_EXTENSION, DEFAULT_TIME_VAL);
+  Dcc.setCV(CV_SIGNAL_INV, 0);
+  
+  gate1Up = gate2Up = DEFAULT_GATE_UP;
+  gate1Down = gate2Down = DEFAULT_GATE_DOWN;
+  gate1Speed = gate2Speed = DEFAULT_SPEED;
+  closeWarningTime = openExtensionTime = DEFAULT_TIME_VAL * 100;
+  signalInverted = false;
+  baseAddress = DEFAULT_ADDR;
+
+  for(int i=0; i<5; i++) {
+    digitalWrite(LED1, LOW); digitalWrite(LED2, HIGH); delay(100);
+    digitalWrite(LED1, HIGH); digitalWrite(LED2, LOW); delay(100);
+  }
+  digitalWrite(LED1, HIGH); digitalWrite(LED2, HIGH);
+  writeSignal(false);
+}
+
+void updateGate() {
+  if (isLearning) return;
+  int target1 = crossingActive ? gate1Down : gate1Up;
+  int target2 = crossingActive ? gate2Down : gate2Up;
+
+  if (crossingActive) {
+    if (warningStartTimer == 0) warningStartTimer = millis();
+    if (millis() - warningStartTimer < closeWarningTime) {
+      target1 = pos1; target2 = pos2;
+    }
+  } else { warningStartTimer = 0; }
+
+  if ((crossingActive && pos1 == gate1Up && (millis() - warningStartTimer >= closeWarningTime)) || 
+      (!crossingActive && pos1 == gate1Down)) {
+    if (!s1Waiting) { s1Timer = millis(); s1Delay = random(500, 2500); s1Waiting = true; }
+    if (millis() - s1Timer < s1Delay) target1 = pos1;
+  } else { s1Waiting = false; }
+
+  if ((crossingActive && pos2 == gate2Up && (millis() - warningStartTimer >= closeWarningTime)) || 
+      (!crossingActive && pos2 == gate2Down)) {
+    if (!s2Waiting) { s2Timer = millis(); s2Delay = random(500, 2500); s2Waiting = true; }
+    if (millis() - s2Timer < s2Delay) target2 = pos2;
+  } else { s2Waiting = false; }
+
+  if (pos1 != target1) {
+    if (!servo1.attached()) servo1.attach(SERVO_PIN);
+    pos1 += (pos1 < target1) ? gate1Speed : -gate1Speed;
+    if (abs(pos1 - target1) < gate1Speed) pos1 = target1;
+    servo1.writeMicroseconds(map(pos1, 0, 255, 1000, 2000));
+  } else if (servo1.attached()) servo1.detach();
+
+  if (pos2 != target2) {
+    if (!servo2.attached()) servo2.attach(SERVO2_PIN);
+    pos2 += (pos2 < target2) ? gate2Speed : -gate2Speed;
+    if (abs(pos2 - target2) < gate2Speed) pos2 = target2;
+    servo2.writeMicroseconds(map(pos2, 0, 255, 1000, 2000));
+  } else if (servo2.attached()) servo2.detach();
+}
+
+void updateLightLogic() {
+  static unsigned long exitTimer = 0;
+  if (crossingActive || pos1 != gate1Up || pos2 != gate2Up) {
+    lightsShouldRun = true; 
+    exitTimer = 0; 
+    writeSignal(true);
+  } else {
+    if (exitTimer == 0) exitTimer = millis();
+    if (millis() - exitTimer > openExtensionTime) {
+      lightsShouldRun = false;
+      writeSignal(false);
+    }
+  }
+}
+
+void updateLight(CrossingLight &l, CrossingLight &partner) {
+  if (isLearning) return;
+  switch (l.state) {
+    case UP:
+      l.brightness += 15;
+      if (l.brightness >= 255) { l.brightness = 255; l.state = HOLD; l.timer = millis(); }
+      break;
+    case HOLD: if (millis() - l.timer >= 120) l.state = DOWN; break;
+    case DOWN:
+      l.brightness -= 15;
+      if (l.brightness <= 0) { l.brightness = 0; l.state = OFF; }
+      break;
+    case OFF: if (lightsShouldRun && partner.state == OFF) l.state = UP; break;
+  }
+  uint8_t index = map(l.brightness, 0, 255, 0, 84);
+  analogWrite(l.pin, gammaTable[index]);
+}
+
+void notifyDccMsg(DCC_MSG * Msg) {
+  if ((Msg->Data[0] & 0xF0) == 0xE0) {
+    uint16_t packetAddr = Msg->Data[0];
+    if (packetAddr == baseAddress) {
+      uint16_t cv = ((uint16_t)(Msg->Data[1] & 0x03) << 8) + Msg->Data[2] + 1;
+      uint8_t newVal = Msg->Data[3];
+      if (cv == 8 && newVal == 8) { resetDefaults(); return; }
+      bool changed = false;
+      if (cv == CV_GATE1_UP) { gate1Up = newVal; changed = true; }
+      else if (cv == CV_GATE1_DOWN) { gate1Down = newVal; changed = true; }
+      else if (cv == CV_GATE1_SPEED) { gate1Speed = (newVal < 1) ? 1 : newVal; changed = true; }
+      else if (cv == CV_GATE2_UP) { gate2Up = newVal; changed = true; }
+      else if (cv == CV_GATE2_DOWN) { gate2Down = newVal; changed = true; }
+      else if (cv == CV_GATE2_SPEED) { gate2Speed = (newVal < 1) ? 1 : newVal; changed = true; }
+      else if (cv == CV_CLOSE_WARNING) { closeWarningTime = (unsigned long)newVal * 100; changed = true; }
+      else if (cv == CV_OPEN_EXTENSION) { openExtensionTime = (unsigned long)newVal * 100; changed = true; }
+      else if (cv == CV_SIGNAL_INV) { signalInverted = (newVal > 0); changed = true; }
+      if (changed) Dcc.setCV(cv, newVal);
+    }
+  }
+}
+
+void notifyDccAccTurnoutOutput(uint16_t Addr, uint8_t Direction, uint8_t OutputPower) {
+  blinkAck(Addr);
+
+  uint8_t nextHead = (queueHead + 1) % QUEUE_SIZE;
+  if (nextHead != queueTail) { 
+    commandQueue[queueHead].addr = Addr;
+    commandQueue[queueHead].direction = Direction;
+    queueHead = nextHead;
+  }
+}
+
+void processQueue() {
+  if (queueHead == queueTail) return; 
+  uint16_t Addr = commandQueue[queueTail].addr;
+  uint8_t Direction = commandQueue[queueTail].direction;
+  queueTail = (queueTail + 1) % QUEUE_SIZE;
+  if (isLearning) {
+    baseAddress = Addr;
+    Dcc.setCV(CV_ACCESSORY_DECODER_ADDRESS_LSB, (Addr & 0x3F));
+    Dcc.setCV(CV_ACCESSORY_DECODER_ADDRESS_MSB, ((Addr >> 6) & 0x07));
+    isLearning = false;
+    for(int i=0; i<3; i++) { 
+      digitalWrite(LED1, HIGH); digitalWrite(LED2, HIGH); delay(200); 
+      digitalWrite(LED1, LOW);  digitalWrite(LED2, LOW);  delay(200); 
+    }
+  } else if (Addr == baseAddress) { crossingActive = Direction; }
+}
+
+void setup() {
+  randomSeed(analogRead(PA_4)); 
+  pinMode(DCC_PIN, INPUT);
+  pinMode(LEARN_PIN, INPUT);
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  pinMode(SIGNAL_OUT, OUTPUT);
+
+  pinMode(STATUS_LED, OUTPUT);
+
+  digitalWrite(LED1, HIGH);
+  digitalWrite(LED2, HIGH);
+  
+  digitalWrite(STATUS_LED, HIGH);
+
+  delay(100);
+  Dcc.pin(digitalPinToInterrupt(DCC_PIN), DCC_PIN, false); 
+  Dcc.init(MAN_ID_DIY, 1, FLAGS_DCC_ACCESSORY_DECODER | FLAGS_OUTPUT_ADDRESS_MODE, 0);
+
+  gate1Up = Dcc.getCV(CV_GATE1_UP); gate1Down = Dcc.getCV(CV_GATE1_DOWN); gate1Speed = Dcc.getCV(CV_GATE1_SPEED);
+  gate2Up = Dcc.getCV(CV_GATE2_UP); gate2Down = Dcc.getCV(CV_GATE2_DOWN); gate2Speed = Dcc.getCV(CV_GATE2_SPEED);
+  uint8_t cw = Dcc.getCV(CV_CLOSE_WARNING); uint8_t oe = Dcc.getCV(CV_OPEN_EXTENSION);
+  uint8_t inv = Dcc.getCV(CV_SIGNAL_INV);
+
+  if (gate1Up == 255) gate1Up = DEFAULT_GATE_UP;
+  if (gate1Down == 255) gate1Down = DEFAULT_GATE_DOWN;
+  if (gate1Speed == 0 || gate1Speed == 255) gate1Speed = DEFAULT_SPEED;
+  if (gate2Up == 255) gate2Up = DEFAULT_GATE_UP;
+  if (gate2Down == 255) gate2Down = DEFAULT_GATE_DOWN;
+  if (gate2Speed == 0 || gate2Speed == 255) gate2Speed = DEFAULT_SPEED;
+  if (cw == 255) { cw = DEFAULT_TIME_VAL; Dcc.setCV(CV_CLOSE_WARNING, cw); }
+  if (oe == 255) { oe = DEFAULT_TIME_VAL; Dcc.setCV(CV_OPEN_EXTENSION, oe); }
+  if (inv == 255) { inv = 0; Dcc.setCV(CV_SIGNAL_INV, 0); }
+  
+  closeWarningTime = (unsigned long)cw * 100;
+  openExtensionTime = (unsigned long)oe * 100;
+  signalInverted = (inv > 0);
+  writeSignal(false);
+
+
+  baseAddress = Dcc.getCV(CV_ACCESSORY_DECODER_ADDRESS_LSB) | (Dcc.getCV(CV_ACCESSORY_DECODER_ADDRESS_MSB) << 6);
+
+  blinkAck(baseAddress);
+
+  if (digitalRead(LEARN_PIN) == HIGH) { isLearning = true; digitalWrite(LED1, LOW); digitalWrite(LED2, LOW); }
+  pos1 = gate1Up; pos2 = gate2Up;
+  servo1.attach(SERVO_PIN); servo2.attach(SERVO2_PIN);
+  servo1.writeMicroseconds(map(pos1, 0, 255, 1000, 2000));
+  servo2.writeMicroseconds(map(pos2, 0, 255, 1000, 2000));
+  delay(500); servo1.detach(); servo2.detach();
+}
+
+void loop() {
+  Dcc.process();
+  processQueue();
+  if (!isLearning) {
+    unsigned long now = millis();
+    if (now - lastUpdate >= 30) { 
+      lastUpdate = now; updateLightLogic(); updateGate();
+      updateLight(light1, light2); updateLight(light2, light1);
+    }
+  }
+}
+
+extern "C" int _write(int file, char *ptr, int len) { return len; }
+
+

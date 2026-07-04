@@ -1,0 +1,35 @@
+This CV list is designed for use with a DCC Command Station in Programming on Main (POM) mode.
+## Decoder Configuration Variables (CVs)
+
+| CV | Name | Default | Range | Description |
+|---|---|---|---|---|
+| 1 & 9 | Accessory Address | 1 | 1-511 | Set via Learn Button or POM. CV1: Low 6 bits, CV9: High 3 bits. |
+| 8 | Manufacturer ID / Reset | 13 | 8 | Writing 8 to this CV resets all settings to factory defaults. |
+| 33 | Gate UP Position | 90 | 0-255 | The servo angle when the crossing is clear (Inactive). |
+| 34 | Gate DOWN Position | 0 | 0-255 | The servo angle when the crossing is blocked (Active). |
+| 35 | Gate Movement Speed | 1 | 1-255 | Degrees per 30ms. Higher values increase movement speed. |
+
+------------------------------
+## Operating Instructions## 🔘 Setting the DCC Address (Learn Mode)
+
+   1. Hold the LEARN button (PA6) high during power-up or while running.
+   2. LED1 will turn ON (solid) to indicate Learn Mode is active.
+   3. Send a Turnout/Accessory command from your controller to the desired address.
+   4. The LEDs will flash 5 times to confirm. The decoder now responds to this address.
+
+## 🛠️ Adjusting Gate Positions (POM)
+
+   1. Use your command station to select the Accessory Address of the crossing.
+   2. Enter Programming on Main (POM) mode.
+   3. Adjust CV 33 (Up) and CV 34 (Down) until the gates align with your model's scenery.
+   4. Adjust CV 35 to achieve a realistic, slow-moving gate effect.
+
+## ⚠️ Factory Reset
+
+* To restore all settings, write value 8 to CV 8.
+* The lights will alternate flash 5 times, and the address will return to 1.
+
+------------------------------
+💡 Pro Tip: If the gate moves in the wrong direction, swap the values in CV 33 and CV 34 rather than remounting the servo!
+If you'd like, I can create a troubleshooting section for the manual as well. Would that be useful?
+

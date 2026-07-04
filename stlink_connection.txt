@@ -1,0 +1,33 @@
+To connect your STM32G031J6 (SO8 package) to an ST-Link V2, you need to wire four main pins between the programmer and your PCB. [1] 
+## 🔌 Pin-to-Pin Connection
+On the SO8 package of the STM32G031, several functions are multiplexed on the same pins. Refer to the table below for the correct physical pins:
+
+| ST-Link V2 Pin | Target Pin (STM32G031J6) | SO8 Physical Pin |
+|---|---|---|
+| SWDIO | PA13 | Pin 7 |
+| SWCLK | PA14 | Pin 8 |
+| GND | VSS | Pin 3 |
+| 3.3V (VCC) | VDD | Pin 2 |
+
+------------------------------
+## ⚠️ Important Design Notes
+
+* Do Not Use PA13/PA14: In your Arduino code, avoid using PA13 or PA14 as GPIO (like for your bridge or LED). If you redefine these pins in your program, the ST-Link may lose the ability to connect for future updates.
+* Voltage Monitoring: Connect the 3.3V pin from the ST-Link to your target's VDD (Pin 2). This allows the programmer to sense that the chip is powered.
+* "Connect Under Reset": If you accidentally "lock" the SWD pins in your code, you may need to connect the NRST pin (if broken out) and select "Connect Under Reset" in your programming software.
+* Boot0 Conflict: On the STM32G0, PA14 (Pin 8) is often shared with BOOT0. Ensure your PCB doesn't have a strong pull-up/down on this pin that might interfere with the high-speed SWD clock signal. [2, 3, 4, 5, 6, 7, 8, 9] 
+* 
+
+------------------------------
+## 📺 Video Guides
+Would you like me to help you design a small 4-pin header layout for your PCB or troubleshoot a connection error?
+
+[1] [https://www.youtube.com](https://www.youtube.com/watch?v=cfBK4AHK94k)
+[2] [https://www.youtube.com](https://www.youtube.com/watch?v=qMUzLU636s8)
+[3] [https://community.st.com](https://community.st.com/t5/stm32-mcus-products/programming-pins-in-the-stm32g031j6m6-microcontroller/td-p/757064)
+[4] [https://community.st.com](https://community.st.com/t5/stm32-mcus-products/programming-pins-in-the-stm32g031j6m6-microcontroller/td-p/757064)
+[5] [https://community.st.com](https://community.st.com/t5/stm32-mcus-products/which-pins-are-needed-to-program-a-mcu-via-swd/td-p/321263)
+[6] [https://www.eevblog.com](https://www.eevblog.com/forum/microcontrollers/how-many-pins-are-required-to-program-an-stm32-chip/)
+[7] [https://community.st.com](https://community.st.com/t5/stm32-mcus-products/st-link-v2-can-not-connect-to-target-help-me/td-p/484922)
+[8] [https://www.youtube.com](https://www.youtube.com/watch?v=NAWpqNjOGlc#:~:text=Connect%20to%20the%20microcontroller%205:05%20Erase%20memory%205:16%20Reset%20pin&text=CUBE%20is%20superior%20to%20the%20ST%2DLink%20software%2C%20but%20may%20not%20work%20with%20ST%2DLink%20V2)
+[9] [https://community.st.com](https://community.st.com/t5/stm32cubeprogrammer-mcus/stm32g0-unable-to-connect-via-swd/td-p/119110)
