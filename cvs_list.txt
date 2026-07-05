@@ -1,35 +1,54 @@
 This CV list is designed for use with a DCC Command Station in Programming on Main (POM) mode.
 ## Decoder Configuration Variables (CVs)
 
-| CV | Name | Default | Range | Description |
-|---|---|---|---|---|
-| 1 & 9 | Accessory Address | 1 | 1-511 | Set via Learn Button or POM. CV1: Low 6 bits, CV9: High 3 bits. |
-| 8 | Manufacturer ID / Reset | 13 | 8 | Writing 8 to this CV resets all settings to factory defaults. |
-| 33 | Gate UP Position | 90 | 0-255 | The servo angle when the crossing is clear (Inactive). |
-| 34 | Gate DOWN Position | 0 | 0-255 | The servo angle when the crossing is blocked (Active). |
-| 35 | Gate Movement Speed | 1 | 1-255 | Degrees per 30ms. Higher values increase movement speed. |
+| CV    | Name                    | Default | Range | Description                                                   |
+|-------|-------------------------|---------|-------|---------------------------------------------------------------|
+| 1 & 9 | Accessory Address       | 1       | 1-511 | Set via Learn Button. CV1: Low 6 bits, CV9: High 3 bits.      |
+| 8     | Manufacturer ID / Reset | 13      | 8     | Writing 8 to this CV resets all settings to factory defaults. |
+| 33    | Servo 1 UP Position     | 90      | 0-255 | The servo angle when the crossing is clear (Inactive).        |
+| 34    | Servo 1 DOWN Position   | 0       | 0-255 | The servo angle when the crossing is blocked (Active).        |
+| 35    | Servo 1 Movement Speed  | 1       | 1-255 | Degrees per 30ms. Higher values increase movement speed.      |
+| 36    | Servo 2 UP Position     | 90      | 0-255 | The servo angle when the crossing is clear (Inactive).        |
+| 37    | Servo 2 DOWN Position   | 0       | 0-255 | The servo angle when the crossing is blocked (Active).        |
+| 38    | Servo 2 Movement Speed  | 1       | 1-255 | Degrees per 30ms. Higher values increase movement speed.      |
+| 39    | Close warning           | 30      | 1-255 | Time before servos move after lights and bell *100ms          |
+| 40    | Open extension          | 30      | 1-255 | Time before lights and bell stop after servos *100ms          |
+| 41    | Bell invert             | 0       | 0-1   | Invert bell signal for external module                        |
+| 42    | Flash time              | 50      | 1-255 | Alternate flash time for leds                                 |
+| 43    | Led 1                   | 0       |       | For future use                                                |
+| 44    | Led 2                   | 0       |       | For future use                                                |
+| 45    | Bell type               | 0       | 0-3   | Bell type see below                                           |
+| 46    | Bell frequency          | 75      | 1-255 | Bell frequency *10Hz                                          |
+| 47    | Bell interval           | 100     | 1-255 | Bell interval between sounding *10mS                          |
+| 48    | Bell strike time        | 12      | 1-255 | Bell strike time duration *10mS                               |
 
 ------------------------------
 ## Operating Instructions## 🔘 Setting the DCC Address (Learn Mode)
 
-   1. Hold the LEARN button (PA6) high during power-up or while running.
+   1. Hold the LEARN button (PA6) high during power-up.
    2. LED1 will turn ON (solid) to indicate Learn Mode is active.
    3. Send a Turnout/Accessory command from your controller to the desired address.
    4. The LEDs will flash 5 times to confirm. The decoder now responds to this address.
 
 ## 🛠️ Adjusting Gate Positions (POM)
 
-   1. Use your command station to select the Accessory Address of the crossing.
+   1. Use your command station to select the Accessory Address of the decoder.
    2. Enter Programming on Main (POM) mode.
-   3. Adjust CV 33 (Up) and CV 34 (Down) until the gates align with your model's scenery.
-   4. Adjust CV 35 to achieve a realistic, slow-moving gate effect.
+   3. Servo 1 Adjust CV 33 (Up) and CV 34 (Down) until the gates align with your model's scenery.
+   4. Servo 1 Adjust CV 35 to achieve a realistic, slow-moving gate effect.
+   3. Servo 2 Adjust CV 36 (Up) and CV 37 (Down) until the gates align with your model's scenery.
+   4. Servo 2 Adjust CV 38 to achieve a realistic, slow-moving gate effect.
 
 ## ⚠️ Factory Reset
 
 * To restore all settings, write value 8 to CV 8.
 * The lights will alternate flash 5 times, and the address will return to 1.
 
+## Bell type
+0 - Simple internal bell
+1 - Internal wav file
+2 - External sound module continuous active
+3 - External sound module pulse every CV47 time interval
+
 ------------------------------
 💡 Pro Tip: If the gate moves in the wrong direction, swap the values in CV 33 and CV 34 rather than remounting the servo!
-If you'd like, I can create a troubleshooting section for the manual as well. Would that be useful?
-
